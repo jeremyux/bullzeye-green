@@ -24,6 +24,13 @@
   #read{position:fixed;top:calc(10px + env(safe-area-inset-top));left:10px;right:10px;display:flex;flex-wrap:wrap;gap:4px 14px;padding:8px 10px;background:rgba(20,26,23,.84);border-radius:6px;font-variant-numeric:tabular-nums;pointer-events:none}
   /* Title card. Carries the notice, but earns its interruption by telling the
      reader what they are looking at and what to press. */
+  #scanHud{position:fixed;left:0;right:0;top:50%;transform:translateY(-50%);z-index:5;
+    display:grid;justify-items:center;gap:9px;pointer-events:none;text-align:center}
+  #scanHud[hidden]{display:none}
+  #scanMsg{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:#9ff5c0;font-variant-numeric:tabular-nums}
+  #scanTrack{width:180px;height:3px;border-radius:2px;background:rgba(255,255,255,.14);overflow:hidden}
+  #scanFill{height:100%;width:0%;background:#5ce29a;transition:width .08s linear}
+  #scanSub{font-size:11px;color:#7f8a83;letter-spacing:.04em}
   #gate{position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:20px;
     background:rgba(12,16,14,.93)}
   #gate[hidden]{display:none}
@@ -71,6 +78,11 @@
 </style>
 </head>
 <body>
+<div id="scanHud" hidden>
+  <div id="scanMsg">Scanning</div>
+  <div id="scanTrack"><div id="scanFill"></div></div>
+  <div id="scanSub">hold steady</div>
+</div>
 <div id="gate" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
   <div id="card">
     <h1 id="gateTitle">Green read prototype</h1>
@@ -88,7 +100,7 @@
           never the physics.</li>
     </ul>
     <p class="terms" id="gateTerms"></p>
-    <button id="gateGo">Open the prototype</button>
+    <button id="gateGo">Scan the green</button>
   </div>
 </div>
 <div id="read">
@@ -121,6 +133,7 @@
     <div class="grp">
       <span class="lbl">View</span>
       <span class="seg"><button id="bTop" aria-pressed="true">Top down</button><button id="bOrbit" aria-pressed="false">Orbit</button></span>
+      <button id="bRescan">Rescan</button>
       <span class="lbl" style="flex:0 0 auto;margin-left:6px">Tap places</span>
       <span class="seg"><button id="bBall" aria-pressed="true">Ball</button><button id="bHole" aria-pressed="false">Hole</button></span>
     </div>
@@ -221,21 +234,24 @@ geo.setAttribute('aG', new THREE.BufferAttribute(aG,2));
 
 const mat = new THREE.ShaderMaterial({
   extensions:{derivatives:true},
-  uniforms:{uTint:{value:0}, uCont:{value:0}, uInt:{value:0.02}, uExag:{value:1}},
+  uniforms:{uTint:{value:0}, uCont:{value:0}, uInt:{value:0.02}, uExag:{value:1},
+            uScan:{value:-1.0}, uScanO:{value:new THREE.Vector2(0,0)}, uScanK:{value:0}},
   vertexShader:`
     attribute float aH; attribute float aS; attribute vec2 aG;
     uniform float uExag;
-    varying float vH; varying float vS; varying vec3 vN;
+    varying float vH; varying float vS; varying vec3 vN; varying vec3 vW;
     void main(){
       vH = aH;                       // true height, so contours stay at true 2 cm
       vS = aS;                       // true slope percent, never exaggerated
       vec3 p = position; p.y = aH * uExag;
       vN = normalize(vec3(-aG.x*uExag, 1.0, -aG.y*uExag));
+      vW = p;
       gl_Position = projectionMatrix*modelViewMatrix*vec4(p,1.0);
     }`,
   fragmentShader:`
     uniform float uTint; uniform float uCont; uniform float uInt;
-    varying float vH; varying float vS; varying vec3 vN;
+    uniform float uScan; uniform vec2 uScanO; uniform float uScanK;
+    varying float vH; varying float vS; varying vec3 vN; varying vec3 vW;
     void main(){
       vec3 base=vec3(0.30,0.54,0.27);
       vec3 c=base;
@@ -251,9 +267,46 @@ const mat = new THREE.ShaderMaterial({
         float f=abs(fract(q-0.5)-0.5)/fwidth(q);
         c=mix(c,vec3(0.08,0.10,0.09),(1.0-min(f,1.0))*0.7);
       }
+      /* Scan reveal. uScan is the radius, in metres, already covered from the
+         scanner's position. Unscanned ground is nearly black, scanned ground
+         carries a 50 cm measurement grid, and the leading edge glows. The grid
+         is drawn from true world coordinates, so it sits on the real geometry. */
+      if(uScanK > 0.0){
+        float d = distance(vW.xz, uScanO);
+        vec2 gs = vW.xz * 2.0;
+        vec2 gg = abs(fract(gs - 0.5) - 0.5) / fwidth(gs);
+        float line = 1.0 - min(min(gg.x, gg.y), 1.0);
+        vec3 scanned = mix(c * 0.30, vec3(0.36,0.92,0.60), line * 0.75);
+        float edge = smoothstep(0.7, 0.0, uScan - d);
+        scanned += vec3(0.45,1.0,0.65) * edge * 0.85;
+        c = mix(c, mix(c * 0.10, scanned, step(d, uScan)), uScanK);
+      }
       gl_FragColor=vec4(c,1.0);
     }`
 });
+/* Sample cloud. These are the terrain mesh's own vertices, so every dot sits
+   exactly on the surface being measured. Nothing is invented for the look. */
+const cloudMat = new THREE.ShaderMaterial({
+  transparent:true, depthWrite:false,
+  uniforms:{uExag:{value:1}, uScan:{value:-1.0}, uScanO:{value:new THREE.Vector2(0,0)}, uFade:{value:1}},
+  vertexShader:`
+    attribute float aH; uniform float uExag; uniform float uScan; uniform vec2 uScanO;
+    varying float vOn;
+    void main(){
+      vec3 p = position; p.y = aH * uExag;
+      vOn = step(distance(p.xz, uScanO), uScan);
+      vec4 mv = modelViewMatrix * vec4(p,1.0);
+      gl_PointSize = max(1.5, 2.4 * (300.0 / -mv.z));
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader:`
+    uniform float uFade; varying float vOn;
+    void main(){ if(vOn < 0.5 || uFade <= 0.0) discard; gl_FragColor = vec4(0.62,0.98,0.75,0.55*uFade); }`
+});
+const cloud = new THREE.Points(geo, cloudMat);
+cloud.frustumCulled = false; cloud.visible = false;
+scene.add(cloud);
+
 const green = new THREE.Mesh(geo, mat);
 green.frustumCulled = false;   // buffer positions are flat; real extent comes from the shader
 scene.add(green);
@@ -623,12 +676,13 @@ const LAYERS = {flow:true, tint:false, cont:false, putt:true};
 let readOn = true;
 
 function syncLayers(){
-  flow.visible = readOn && LAYERS.flow;
-  mat.uniforms.uTint.value = (readOn && LAYERS.tint) ? 1 : 0;
-  mat.uniforms.uCont.value = (readOn && LAYERS.cont) ? 1 : 0;
-  const p = readOn && LAYERS.putt;
+  const live = phase==='live';
+  flow.visible = live && readOn && LAYERS.flow;
+  mat.uniforms.uTint.value = (live && readOn && LAYERS.tint) ? 1 : 0;
+  mat.uniforms.uCont.value = (live && readOn && LAYERS.cont) ? 1 : 0;
+  const p = live && readOn && LAYERS.putt;
   [puttLine, aimLine, ribbon, aimMarker].forEach(o=>o&&(o.visible=p));
-  $('legend').hidden = !(readOn && LAYERS.tint);
+  $('legend').hidden = !(live && readOn && LAYERS.tint);
   $('layers').classList.toggle('dim', !readOn);
   press(bRead, readOn);
 }
@@ -647,6 +701,7 @@ bSheet.onclick = ()=>{
 const layerBtn = (b,key)=>b.addEventListener('click',()=>{ LAYERS[key]=!LAYERS[key]; press(b,LAYERS[key]); syncLayers(); });
 layerBtn(bFlow,'flow'); layerBtn(bTint,'tint'); layerBtn(bCont,'cont'); layerBtn(bPutt,'putt');
 
+$('bRescan').onclick=()=>{ if(play) stopPlay(); beginScan(); };
 bTop.onclick=()=>setView(true); bOrbit.onclick=()=>setView(false);
 bBall.onclick=()=>{ placeMode='ball'; press(bBall,true); press(bHole,false); };
 bHole.onclick=()=>{ placeMode='hole'; press(bHole,true); press(bBall,false); };
@@ -659,7 +714,7 @@ Object.entries(paceBtns).forEach(([k,b])=>b.addEventListener('click',()=>{
 $('sExag').addEventListener('input',e=>{
   if (play) stopPlay();
   exag=+e.target.value;
-  mat.uniforms.uExag.value = exag;
+  mat.uniforms.uExag.value = exag; cloudMat.uniforms.uExag.value = exag;
   const l=$('lExag');
   l.textContent = exag===1 ? '1\u00d7 true' : exag+'\u00d7 exaggerated';
   const chip=$('chipExag'); chip.hidden = exag===1; chip.textContent = exag+'\u00d7';
@@ -678,7 +733,7 @@ addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.upd
     '\u00a9 2026 ' + AUTHOR + '. All rights reserved. Shared solely for evaluation of the '
     + 'author\u2019s work. No licence is granted to copy, modify, distribute, or incorporate '
     + 'this work or any derivative of it into any product or codebase. ' + AUTHOR_CONTACT;
-  const close=()=>{ gate.hidden=true; };
+  const close=()=>{ gate.hidden=true; beginScan(); };
   go.addEventListener('click', close);
   addEventListener('keydown', e=>{ if(e.key==='Escape' && !gate.hidden) close(); });
   go.focus();
@@ -687,12 +742,77 @@ addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.upd
 document.getElementById('credit').textContent =
   '\u00a9 2026 ' + AUTHOR + ' \u00b7 evaluation copy \u00b7 ' + AUTHOR_CONTACT;
 
+/* ---------- Capture sequence ----------
+   gate -> scan -> rise -> live.
+
+   The scan runs over the real surface from roughly standing eye height, which
+   is where a golfer would actually hold a phone. The reveal front expands from
+   the ball, the mesh's own vertices light up as it passes, and the camera then
+   climbs to the locked top-down view. That climb is the argument: you captured
+   the green from down there, and the shape you could not see is up here. */
+const SCAN_DUR=2.8, SCAN_HOLD=0.4, RISE_DUR=1.6;
+const EYE={theta:0.34, phi:1.40, r:15};        // grazing, ~2.5 m of camera height
+const TOP={theta:0, phi:0.001, r:30};
+let phase='gate', tPhase=0, riseFrom=null;
+
+function beginScan(){
+  phase='scan'; tPhase=0;
+  Object.assign(cam, EYE); updateCamera();
+  press(bTop,false); press(bOrbit,true);
+  const o=mat.uniforms.uScanO.value; o.set(ball.x, ball.z);
+  cloudMat.uniforms.uScanO.value.set(ball.x, ball.z);
+  mat.uniforms.uScan.value=0; cloudMat.uniforms.uScan.value=0;
+  mat.uniforms.uScanK.value=1; cloudMat.uniforms.uFade.value=1;
+  cloud.visible=true;
+  ballG.visible=holeG.visible=false;
+  $('scanHud').hidden=false;
+  $('panel').style.visibility='hidden'; $('read').style.visibility='hidden';
+  syncLayers();
+}
+// furthest corner from the scanner, so the sweep always finishes the patch
+const scanReach = () => Math.max(
+  Math.hypot(ball.x-HALF,ball.z-HALF), Math.hypot(ball.x+HALF,ball.z-HALF),
+  Math.hypot(ball.x-HALF,ball.z+HALF), Math.hypot(ball.x+HALF,ball.z+HALF));
+
+function stepPhase(dt){
+  if (phase==='scan'){
+    tPhase+=dt;
+    const f=Math.min(1,tPhase/SCAN_DUR), reach=scanReach();
+    mat.uniforms.uScan.value = f*reach; cloudMat.uniforms.uScan.value = f*reach;
+    $('scanMsg').textContent='Scanning  '+Math.round(f*100)+'%';
+    $('scanFill').style.width=(f*100)+'%';
+    if (f>=1) $('scanSub').textContent='surface captured';
+    else $('scanSub').textContent='hold steady';
+    if (tPhase>=SCAN_DUR+SCAN_HOLD){ phase='rise'; tPhase=0; riseFrom={...cam};
+      $('scanMsg').textContent='Building the read'; $('scanSub').textContent=''; }
+  } else if (phase==='rise'){
+    tPhase+=dt;
+    const f=Math.min(1,tPhase/RISE_DUR), e=f*f*(3-2*f);
+    cam.theta=riseFrom.theta+(TOP.theta-riseFrom.theta)*e;
+    cam.phi  =riseFrom.phi  +(TOP.phi  -riseFrom.phi  )*e;
+    cam.r    =riseFrom.r    +(TOP.r    -riseFrom.r    )*e;
+    updateCamera();
+    mat.uniforms.uScanK.value = 1-e;                 // grid dissolves as we climb
+    cloudMat.uniforms.uFade.value = Math.max(0, 1-e*1.4);
+    if (f>=1){
+      phase='live';
+      mat.uniforms.uScanK.value=0; cloud.visible=false;
+      ballG.visible=holeG.visible=true;
+      $('scanHud').hidden=true;
+      $('panel').style.visibility='visible'; $('read').style.visibility='visible';
+      press(bTop,true); press(bOrbit,false);
+      syncLayers(); resolveSoon();
+    }
+  }
+}
+
 /* ---------- Go ---------- */
 setView(true); placeMarkers(); updateFlow(0); syncLayers(); resolveSoon();
 let last=performance.now();
 renderer.setAnimationLoop(now=>{
   const dt=Math.min(0.05,(now-last)/1000); last=now;
   if (flow.visible) updateFlow(reduceMotion?0:dt);
+  if (phase!=='live') stepPhase(dt);
   if (play) stepPlay(dt);
   renderer.render(scene,camera);
 });
