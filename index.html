@@ -329,7 +329,21 @@ const holeG = new THREE.Group();
 holeG.add(new THREE.Mesh(new THREE.CircleGeometry(0.054,24).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({color:0x0c0f0d})));
 const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.008,0.008,2.1,6), new THREE.MeshBasicMaterial({color:0xf2f2ee}));
 pin.position.y = 1.05;
-holeG.add(pin, flatRing(0.30,0.36,0x0c0f0d,0.6));
+
+/* Flag, true size: 50 x 35 cm on a 2.1 m stick. The static curl across the
+   free edge is there so it reads as cloth at a grazing angle instead of a
+   card. It is decoration and carries no data, hence a neutral cream rather
+   than any colour the overlays use. */
+const flagGeo = new THREE.PlaneGeometry(0.5, 0.35, 12, 1);
+const fp = flagGeo.attributes.position;
+for (let i=0;i<fp.count;i++){
+  const u=(fp.getX(i)+0.25)/0.5;                     // 0 at the stick, 1 at the free edge
+  fp.setZ(i, Math.sin(u*Math.PI*1.7)*0.05*u);
+}
+flagGeo.computeVertexNormals();
+const flag = new THREE.Mesh(flagGeo, new THREE.MeshBasicMaterial({color:0xf2f2ee, side:THREE.DoubleSide}));
+flag.position.set(0.258, 1.88, 0);                    // hangs off the stick, just under the top
+holeG.add(pin, flag, flatRing(0.30,0.36,0x0c0f0d,0.6));
 scene.add(holeG);
 
 const aimMarker = flatRing(0.10,0.15,0xe8c547,0.95);
