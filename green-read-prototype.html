@@ -1,0 +1,701 @@
+<!doctype html>
+<!--
+  ============================================================================
+  Green read prototype
+  Copyright (c) 2026 Jeremy Lenguyen. All rights reserved.
+
+  Provided solely for evaluation of the author's work in connection with a
+  specific hiring discussion. No licence is granted, expressly or by
+  implication, to copy, modify, distribute, or incorporate this work or any
+  derivative of it into any product, prototype, or codebase. Retention of a
+  copy for evaluation does not constitute permission to use it.
+
+  Authored: September 2026.  Contact: <your email>
+  ============================================================================
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<title>Green read prototype</title>
+<style>
+  html,body{margin:0;height:100%;background:#1c2320;color:#e9ece6;font:14px/1.35 system-ui,-apple-system,sans-serif;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
+  canvas{display:block}
+  #read{position:fixed;top:calc(10px + env(safe-area-inset-top));left:10px;right:10px;display:flex;flex-wrap:wrap;gap:4px 14px;padding:8px 10px;background:rgba(20,26,23,.84);border-radius:6px;font-variant-numeric:tabular-nums;pointer-events:none}
+  /* Title card. Carries the notice, but earns its interruption by telling the
+     reader what they are looking at and what to press. */
+  #gate{position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:20px;
+    background:rgba(12,16,14,.93)}
+  #gate[hidden]{display:none}
+  #card{max-width:460px;width:100%;background:#1f2723;border:1px solid #3a443e;border-radius:12px;
+    padding:22px 22px 18px;box-shadow:0 18px 60px rgba(0,0,0,.6);max-height:100%;overflow:auto}
+  #card h1{margin:0 0 2px;font-size:17px;font-weight:600;letter-spacing:.01em}
+  #card .by{margin:0 0 14px;font-size:13px;color:#8b948d}
+  #card p{margin:0 0 12px;font-size:13.5px;color:#c7cfc9;line-height:1.5}
+  #card ul{margin:0 0 16px;padding-left:18px;font-size:13.5px;color:#c7cfc9;line-height:1.6}
+  #card li::marker{color:#6f7a73}
+  #card .terms{font-size:11.5px;line-height:1.5;color:#7f8a83;border-top:1px solid #333c36;padding-top:12px;margin-bottom:16px}
+  #gateGo{width:100%;padding:10px;font-weight:600;background:#e8c547;border-color:#e8c547;color:#1c2320;border-radius:10px}
+  #credit{padding:5px 10px 0;text-align:right;font-size:10px;color:#6f7a73;letter-spacing:.02em}
+  #read span{white-space:nowrap}
+  #read b{font-weight:600}
+  /* Control sheet. Collapses to a slim bar so the green is unobstructed;
+     the two controls the demo actually runs on stay on the bar. */
+  #panel{position:fixed;left:0;right:0;bottom:0;background:rgba(20,26,23,.94);border-top:1px solid #333c36}
+  #bar{display:flex;align-items:center;gap:8px;padding:9px 10px}
+  #panel[data-open="false"] #bar{padding-bottom:calc(9px + env(safe-area-inset-bottom))}
+  #panel[data-open="false"] #sheet{display:none}
+  #sheet{display:grid;gap:11px;padding:4px 10px calc(12px + env(safe-area-inset-bottom))}
+  .grp{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .lbl{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#7f8a83;flex:0 0 78px}
+  button{font:inherit;color:#c7cfc9;background:#2c3530;border:1px solid #46524b;border-radius:14px;padding:6px 11px;cursor:pointer}
+  button[aria-pressed="true"]{background:#e9ece6;color:#1c2320;border-color:#e9ece6}
+  /* Pick-one groups look like one control, not like several toggles. */
+  .seg{display:inline-flex;background:#232b27;border:1px solid #3a443e;border-radius:15px;padding:2px;gap:2px}
+  .seg button{border:0;background:transparent;border-radius:13px;padding:5px 13px}
+  #bRead{font-weight:600;padding:7px 16px}
+  #bRead[aria-pressed="true"]{background:#e8c547;border-color:#e8c547;color:#1c2320}
+  #bPlay{padding:7px 14px}
+  #bSheet{margin-left:auto;color:#9aa49d;background:transparent;border-color:#3a443e}
+  #chipExag{font-size:12px;color:#1c2320;background:#e8c547;padding:3px 9px;border-radius:10px;font-weight:600}
+  #chipExag[hidden]{display:none}
+  .dim{opacity:.35;pointer-events:none}
+  button:focus-visible,input:focus-visible{outline:2px solid #e8c547;outline-offset:2px}
+  label{display:flex;align-items:center;gap:8px;flex:1;min-width:190px;font-size:13px;color:#c7cfc9}
+  input[type=range]{flex:1;accent-color:#e8c547;min-width:80px}
+  .legend{display:flex;align-items:center;gap:6px;font-size:12px;color:#aab3ac}
+  .legend[hidden]{display:none}        /* [hidden] alone loses to display:flex */
+  .bar{height:8px;width:72px;border-radius:2px;background:linear-gradient(90deg,#4d8a45,#e8c547 50%,#d9442b)}
+  .note{font-size:11px;color:#8b948d}
+  .warn{color:#e8c547}
+</style>
+</head>
+<body>
+<div id="gate" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
+  <div id="card">
+    <h1 id="gateTitle">Green read prototype</h1>
+    <p class="by" id="gateBy"></p>
+    <p>A 20&nbsp;m square of green at true scale, with slopes of about 1&ndash;4%. Lit from
+       straight overhead on purpose, so the bare surface honestly reads flat. Every
+       overlay and the putt solver read from the same height function and its analytic
+       gradient.</p>
+    <ul>
+      <li><b>Read</b> toggles the whole overlay. That contrast is the point.</li>
+      <li><b>Roll it</b> replays the solved putt on its real clock. Watch distance and
+          break diverge: most of the break happens late.</li>
+      <li><b>Pace</b> changes the line. Firmer takes less break.</li>
+      <li>Tap to move the ball or hole. Vertical scale exaggerates the picture only,
+          never the physics.</li>
+    </ul>
+    <p class="terms" id="gateTerms"></p>
+    <button id="gateGo">Open the prototype</button>
+  </div>
+</div>
+<div id="read">
+  <span>Distance <b id="rDist">–</b></span>
+  <span>Elevation <b id="rElev">–</b></span>
+  <span>Slope at ball <b id="rSlope">–</b></span>
+  <span>Aim <b id="rAim">–</b></span>
+  <span>Pace <b id="rPace">–</b></span>
+  <span id="rStatus"></span>
+</div>
+
+<div id="panel" data-open="true">
+  <div id="credit"></div>
+  <div id="bar">
+    <button id="bRead" aria-pressed="true">Read</button>
+    <button id="bPlay" aria-pressed="false">Roll it</button>
+    <span id="chipExag" hidden>1&times;</span>
+    <button id="bSheet" aria-expanded="true" aria-controls="sheet">Controls &#9662;</button>
+  </div>
+
+  <div id="sheet">
+    <div class="grp" id="layers">
+      <span class="lbl">Layers</span>
+      <button id="bFlow" aria-pressed="true">Flow</button>
+      <button id="bTint" aria-pressed="false">Slope tint</button>
+      <button id="bCont" aria-pressed="false">Contours 2 cm</button>
+      <button id="bPutt" aria-pressed="true">Putt line</button>
+      <span class="legend" id="legend" hidden><span>0%</span><span class="bar"></span><span>4%+</span></span>
+    </div>
+    <div class="grp">
+      <span class="lbl">View</span>
+      <span class="seg"><button id="bTop" aria-pressed="true">Top down</button><button id="bOrbit" aria-pressed="false">Orbit</button></span>
+      <span class="lbl" style="flex:0 0 auto;margin-left:6px">Tap places</span>
+      <span class="seg"><button id="bBall" aria-pressed="true">Ball</button><button id="bHole" aria-pressed="false">Hole</button></span>
+    </div>
+    <div class="grp">
+      <span class="lbl">Pace</span>
+      <span class="seg"><button id="pDie" aria-pressed="false">Die</button><button id="pStd" aria-pressed="true">Standard</button><button id="pFirm" aria-pressed="false">Firm</button></span>
+    </div>
+    <div class="grp">
+      <span class="lbl">Green</span>
+      <label>Vertical scale <input id="sExag" type="range" min="1" max="10" step="0.5" value="1"><span id="lExag">1&times; true</span></label>
+      <label>Stimp <input id="sStimp" type="range" min="7" max="13" step="0.5" value="10"><span id="lStimp">10</span></label>
+    </div>
+    <div class="grp"><span class="note" id="note" style="font-size:11px;color:#8b948d">Physics always runs at 1&times; true scale. Flow speed is a &times;35 visual gain, not ball speed. Roll it replays the solved putt on its real clock.</span></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ============================================================================
+   Green read prototype
+   ----------------------------------------------------------------------------
+   Everything below works in true metres. A 20 m x 20 m patch of green with
+   slopes of roughly 1-4% and about 40 cm of total relief.
+
+   Honesty rules this file follows:
+     1. The surface is a single height function h(x,z). Every overlay and the
+        putt solver read from h and its ANALYTIC gradient. Nothing is
+        hand-placed to make a read look good.
+     2. The vertical-scale slider exaggerates the MESH only, in the vertex
+        shader. h() and the physics are never scaled. A 6x view and a 1x view
+        produce the identical putt.
+     3. The key light is straight overhead so the bare surface honestly reads
+        flat from above. That is the problem being solved, not a rendering bug.
+   ========================================================================== */
+
+/* ---------- Attribution ----------
+   Edit these two lines and nothing else changes. Used by the title card and the
+   on-screen credit. */
+const AUTHOR = 'Jeremy Lenguyen';
+const AUTHOR_CONTACT = 'your@email.com';
+
+/* ---------- Terrain ---------- */
+const HALF = 10;
+const BUMPS = [
+  {x: 2.5, z:-3.0, a: 0.13, s:3.2},
+  {x:-4.0, z: 3.5, a:-0.10, s:2.6},
+  {x: 5.0, z: 5.0, a: 0.06, s:1.8},
+  {x:-5.5, z:-5.0, a: 0.05, s:2.2},
+];
+function h(x,z){
+  let v = 0.012*x + 0.006*z + 0.025*Math.sin(0.35*x + 0.2*z);
+  for (const b of BUMPS){ const dx=x-b.x, dz=z-b.z; v += b.a*Math.exp(-(dx*dx+dz*dz)/(2*b.s*b.s)); }
+  return v;
+}
+// Analytic gradient (rise over run, unitless). Written into GX/GZ to avoid
+// allocating a vector on every one of the ~2.5M evaluations a solve performs.
+let GX=0, GZ=0;
+function grad(x,z){
+  const c = Math.cos(0.35*x + 0.2*z);
+  let gx = 0.012 + 0.025*0.35*c, gz = 0.006 + 0.025*0.2*c;
+  for (const b of BUMPS){
+    const dx=x-b.x, dz=z-b.z, s2=b.s*b.s;
+    const e = b.a*Math.exp(-(dx*dx+dz*dz)/(2*s2));
+    gx -= e*dx/s2; gz -= e*dz/s2;
+  }
+  GX=gx; GZ=gz;
+}
+
+/* ---------- Scene ---------- */
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1c2320);
+const camera = new THREE.PerspectiveCamera(40, innerWidth/innerHeight, 0.05, 200);
+
+let exag = 1, stimp = 10;
+
+/* The mesh is a flat plane in the buffer. Displacement happens in the vertex
+   shader, so moving the exaggeration slider costs one uniform write instead of
+   rewriting 26k vertices and recomputing normals on the CPU. Normals are exact
+   rather than averaged: for y = h(x,z), n = normalize(-dh/dx, 1, -dh/dz). */
+const SEG = 160;
+const geo = new THREE.PlaneGeometry(HALF*2, HALF*2, SEG, SEG);
+geo.rotateX(-Math.PI/2);
+const pos = geo.attributes.position;
+const aH = new Float32Array(pos.count), aS = new Float32Array(pos.count), aG = new Float32Array(pos.count*2);
+for (let i=0;i<pos.count;i++){
+  const x=pos.getX(i), z=pos.getZ(i);
+  aH[i]=h(x,z); grad(x,z);
+  aS[i]=Math.hypot(GX,GZ)*100;
+  aG[i*2]=GX; aG[i*2+1]=GZ;
+}
+geo.setAttribute('aH', new THREE.BufferAttribute(aH,1));
+geo.setAttribute('aS', new THREE.BufferAttribute(aS,1));
+geo.setAttribute('aG', new THREE.BufferAttribute(aG,2));
+
+const mat = new THREE.ShaderMaterial({
+  extensions:{derivatives:true},
+  uniforms:{uTint:{value:0}, uCont:{value:0}, uInt:{value:0.02}, uExag:{value:1}},
+  vertexShader:`
+    attribute float aH; attribute float aS; attribute vec2 aG;
+    uniform float uExag;
+    varying float vH; varying float vS; varying vec3 vN;
+    void main(){
+      vH = aH;                       // true height, so contours stay at true 2 cm
+      vS = aS;                       // true slope percent, never exaggerated
+      vec3 p = position; p.y = aH * uExag;
+      vN = normalize(vec3(-aG.x*uExag, 1.0, -aG.y*uExag));
+      gl_Position = projectionMatrix*modelViewMatrix*vec4(p,1.0);
+    }`,
+  fragmentShader:`
+    uniform float uTint; uniform float uCont; uniform float uInt;
+    varying float vH; varying float vS; varying vec3 vN;
+    void main(){
+      vec3 base=vec3(0.30,0.54,0.27);
+      vec3 c=base;
+      if(uTint>0.5){
+        vec3 y=vec3(0.91,0.77,0.28), r=vec3(0.85,0.27,0.17);
+        float t=clamp(vS/4.0,0.0,1.0);
+        c = t<0.5 ? mix(base,y,t*2.0) : mix(y,r,(t-0.5)*2.0);
+      }
+      // Light straight overhead: at true scale this is nearly uniform. That is the point.
+      c *= 0.62 + 0.38*max(normalize(vN).y,0.0);
+      if(uCont>0.5){
+        float q=vH/uInt;
+        float f=abs(fract(q-0.5)-0.5)/fwidth(q);
+        c=mix(c,vec3(0.08,0.10,0.09),(1.0-min(f,1.0))*0.7);
+      }
+      gl_FragColor=vec4(c,1.0);
+    }`
+});
+const green = new THREE.Mesh(geo, mat);
+green.frustumCulled = false;   // buffer positions are flat; real extent comes from the shader
+scene.add(green);
+
+const yAt = (x,z,off=0) => h(x,z)*exag + off;
+
+/* ---------- Ball and hole (true size, plus visibility rings) ---------- */
+const ball = {x:-5, z:-2}, hole = {x:3.5, z:1.5};
+const flatRing = (r1,r2,color,op) => new THREE.Mesh(
+  new THREE.RingGeometry(r1,r2,40).rotateX(-Math.PI/2),
+  new THREE.MeshBasicMaterial({color,transparent:true,opacity:op,depthWrite:false}));
+
+const ballG = new THREE.Group();
+const ballMesh = new THREE.Mesh(new THREE.SphereGeometry(0.0213,16,12), new THREE.MeshBasicMaterial({color:0xffffff}));
+ballMesh.position.y = 0.0213;
+ballG.add(ballMesh, flatRing(0.22,0.28,0xffffff,0.7));
+scene.add(ballG);
+
+const holeG = new THREE.Group();
+holeG.add(new THREE.Mesh(new THREE.CircleGeometry(0.054,24).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({color:0x0c0f0d})));
+const pin = new THREE.Mesh(new THREE.CylinderGeometry(0.008,0.008,2.1,6), new THREE.MeshBasicMaterial({color:0xf2f2ee}));
+pin.position.y = 1.05;
+holeG.add(pin, flatRing(0.30,0.36,0x0c0f0d,0.6));
+scene.add(holeG);
+
+const aimMarker = flatRing(0.10,0.15,0xe8c547,0.95);
+scene.add(aimMarker);
+
+function placeMarkers(){
+  ballG.position.set(ball.x, yAt(ball.x,ball.z,0.003), ball.z);
+  holeG.position.set(hole.x, yAt(hole.x,hole.z,0.004), hole.z);
+}
+
+/* ---------- Flow field ----------
+   Particles run down the fall line. Direction is the true negative gradient.
+   Speed and trail length are proportional to slope, but multiplied by a fixed
+   visual gain: a real ball at rest on a 2% green does not move at all, because
+   friction (about 0.55 m/s^2 at stimp 10) exceeds the gravity component (about
+   0.14 m/s^2). So this is a legible picture of the gradient field, not a
+   simulation of a trickling ball. Motion is used because a top-down view
+   removes the depth cues that would otherwise show the shape. */
+const FLOW_GAIN = 35;
+const P = 1400;
+const px=new Float32Array(P), pz=new Float32Array(P), life=new Float32Array(P);
+const spawn = i => { px[i]=(Math.random()*2-1)*HALF; pz[i]=(Math.random()*2-1)*HALF; life[i]=2+Math.random()*3; };
+for (let i=0;i<P;i++){ spawn(i); life[i]*=Math.random(); }
+const flowPos = new Float32Array(P*6);
+const flowGeo = new THREE.BufferGeometry();
+flowGeo.setAttribute('position', new THREE.BufferAttribute(flowPos,3));
+const flow = new THREE.LineSegments(flowGeo, new THREE.LineBasicMaterial({color:0xe6eee2,transparent:true,opacity:0.6}));
+flow.frustumCulled = false;
+scene.add(flow);
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function updateFlow(dt){
+  for (let i=0;i<P;i++){
+    grad(px[i],pz[i]);
+    const m = Math.hypot(GX,GZ);
+    const dx=-GX/(m||1), dz=-GZ/(m||1);
+    const sp = m*FLOW_GAIN;                 // 2% slope -> 0.7 m/s on screen
+    px[i]+=dx*sp*dt; pz[i]+=dz*sp*dt; life[i]-=dt;
+    if (life[i]<0 || Math.abs(px[i])>HALF || Math.abs(pz[i])>HALF) spawn(i);
+    const L = 0.12 + sp*0.45;
+    const tx=px[i]-dx*L, tz=pz[i]-dz*L, o=i*6;
+    flowPos[o]=tx; flowPos[o+1]=yAt(tx,tz,0.03); flowPos[o+2]=tz;
+    flowPos[o+3]=px[i]; flowPos[o+4]=yAt(px[i],pz[i],0.03); flowPos[o+5]=pz[i];
+  }
+  flowGeo.attributes.position.needsUpdate = true;
+}
+
+/* ---------- Putt physics ----------
+   Rolling sphere on an incline: a = (5/7) g * slope. Strictly the along-slope
+   term is sin(theta) while the gradient is tan(theta); at 1-4% those differ by
+   under 0.1%, so the gradient is used directly.
+   Green speed from stimp: a ball released at 1.83 m/s rolls `stimp` feet on the
+   flat, which fixes the kinetic friction deceleration.
+   Capture is modelled as a hard threshold: within the 54 mm hole radius and
+   under 1.3 m/s. Real lip-outs also depend on entry offset and angle; a firm
+   putt arriving fast will correctly fail to hole here, which is the behaviour
+   that matters for choosing pace. */
+const G = 9.81, HOLE_R = 0.054, CAPTURE_V = 1.3;
+function roll(ang, v0, record){
+  const dec = 1.83*1.83/(2*stimp*0.3048), k = 5/7*G, dt = 0.01;
+  let x=ball.x, z=ball.z, vx=Math.cos(ang)*v0, vz=Math.sin(ang)*v0;
+  let minD=1e9, vAtMin=0;
+  const pts = record ? [[x,z]] : null;
+  const trace = record ? [{x,z,v:v0,t:0}] : null;   // parallel to pts: speed and clock
+  for (let s=0;s<2500;s++){
+    grad(x,z);
+    const gax=-k*GX, gaz=-k*GZ, gMag=Math.hypot(gax,gaz);
+    const sp=Math.hypot(vx,vz);
+    if (sp<0.02 && gMag<dec) break;                 // at rest and friction holds it
+    let ax=gax, az=gaz;
+    if (sp>1e-6){ ax-=dec*vx/sp; az-=dec*vz/sp; }
+    const nvx=vx+ax*dt, nvz=vz+az*dt;
+    if (nvx*vx+nvz*vz<0 && gMag<dec) break;         // would reverse, so it has stopped
+    const nx=x+nvx*dt, nz=z+nvz*dt;
+    const d = segDist(x,z,nx,nz,hole.x,hole.z);
+    if (d<minD){ minD=d; vAtMin=Math.hypot(nvx,nvz); }
+    x=nx; z=nz; vx=nvx; vz=nvz;
+    if (record){
+      const t=(s+1)*dt, sp2=Math.hypot(vx,vz);
+      if (d<HOLE_R && vAtMin<CAPTURE_V){ pts.push([hole.x,hole.z]); trace.push({x:hole.x,z:hole.z,v:sp2,t}); break; }
+      if (s%3===0){ pts.push([x,z]); trace.push({x,z,v:sp2,t}); }
+    }
+    if (Math.abs(x)>HALF||Math.abs(z)>HALF) break;
+  }
+  if (record){ const last=trace[trace.length-1]; pts.push([x,z]); trace.push({x,z,v:0,t:last.t+dt}); }
+  return {x,z,minD,vAtMin,pts,trace};
+}
+function segDist(ax,az,bx,bz,qx,qz){
+  const dx=bx-ax, dz=bz-az, l=dx*dx+dz*dz;
+  let t = l ? ((qx-ax)*dx+(qz-az)*dz)/l : 0; t=Math.max(0,Math.min(1,t));
+  return Math.hypot(ax+t*dx-qx, az+t*dz-qz);
+}
+
+/* Pace is the distance the ball would finish past the hole. Firmer pace takes
+   less break but arrives faster, so it holes over a narrower speed window. */
+const PACE = {die:0.15, std:0.40, firm:0.90};
+let paceKey = 'std';
+
+// For an aim angle, bisect launch speed so the ball finishes `past` metres long.
+function paceFor(ang, D, ux, uz, past){
+  let lo=0.2, hi=7;
+  for (let i=0;i<14;i++){
+    const mid=(lo+hi)/2, r=roll(ang,mid,false);
+    const s=(r.x-ball.x)*ux+(r.z-ball.z)*uz;
+    if (s < D+past) lo=mid; else hi=mid;
+  }
+  return (lo+hi)/2;
+}
+let putt = null;
+function solve(){
+  const t0 = performance.now();
+  const past = PACE[paceKey];
+  const dx=hole.x-ball.x, dz=hole.z-ball.z, D=Math.hypot(dx,dz), ux=dx/D, uz=dz/D;
+  const baseAng=Math.atan2(dz,dx);
+  let best={miss:1e9};
+  const test = a => { const v=paceFor(a,D,ux,uz,past); const r=roll(a,v,false); if (r.minD<best.miss) best={miss:r.minD,ang:a,v}; };
+  for (let deg=-30; deg<=30; deg+=1.5) test(baseAng+deg*Math.PI/180);
+  const c=best.ang;
+  for (let deg=-1.5; deg<=1.5; deg+=0.1) test(c+deg*Math.PI/180);
+  const r = roll(best.ang,best.v,true);
+  const holed = r.minD<HOLE_R && r.vAtMin<CAPTURE_V;
+  // Aim point: where the ball would finish if the green were flat, at hole distance.
+  const ax=ball.x+Math.cos(best.ang)*D, az=ball.z+Math.sin(best.ang)*D;
+  const rightX=-uz, rightZ=ux;
+  const lateral=(ax-hole.x)*rightX+(az-hole.z)*rightZ;
+
+  /* Break profile. For each recorded step, how far the ball has drifted off the
+     aim line and how far along it has travelled, both as a fraction of the
+     total. These two diverge sharply: the ball is slowest at the end, so
+     gravity gets the most time per metre there and most of the break happens
+     late. That is the thing the replay exists to show. */
+  const aimUx=Math.cos(best.ang), aimUz=Math.sin(best.ang);
+  const rx=-aimUz, rz=aimUx;
+  const tr=r.trace;
+  for (const p of tr){ const dx=p.x-ball.x, dz=p.z-ball.z; p.along=dx*aimUx+dz*aimUz; p.lat=dx*rx+dz*rz; }
+  const rawL=tr[tr.length-1].lat, endA=tr[tr.length-1].along || 1;
+  const straight=Math.abs(rawL)<0.02, endL=straight?1:rawL;
+  for (const p of tr){ p.fBreak=p.lat/endL; p.fDist=p.along/endA; }
+
+  // Pace expressed the way a golfer calibrates it: the distance this launch
+  // speed would roll on a dead flat green of the same stimp.
+  const dec = 1.83*1.83/(2*stimp*0.3048);
+  const flatEquiv = best.v*best.v/(2*dec);
+
+  putt = {pts:r.pts, trace:tr, straight, ax, az, D, lateral, holed, miss:r.minD, v0:best.v, flatEquiv,
+          dur:tr[tr.length-1].t, ms:performance.now()-t0};
+  drawPutt(); updateReadout();
+}
+
+/* ---------- Putt line, aim line, and the break ribbon ----------
+   The ribbon fills the area between where you aim and where the ball actually
+   goes. That area IS the break, and unlike two thin lines it stays readable
+   from straight above on a phone. */
+let puttLine=null, aimLine=null, ribbon=null;
+const puttMat = new THREE.LineBasicMaterial({color:0x58c4ff});
+const aimMat = new THREE.LineDashedMaterial({color:0xe8c547,dashSize:0.2,gapSize:0.12});
+const ribMat = new THREE.MeshBasicMaterial({color:0xe8c547,transparent:true,opacity:0.16,side:THREE.DoubleSide,depthWrite:false});
+
+function resample(pts, n){            // even spacing by arc length
+  const cum=[0];
+  for (let i=1;i<pts.length;i++) cum.push(cum[i-1]+Math.hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1]));
+  const L=cum[cum.length-1]||1, out=[];
+  let i=1;
+  for (let k=0;k<=n;k++){
+    const t=L*k/n;
+    while (i<cum.length-1 && cum[i]<t) i++;
+    const span=(cum[i]-cum[i-1])||1, f=Math.min(1,Math.max(0,(t-cum[i-1])/span));
+    out.push([pts[i-1][0]+(pts[i][0]-pts[i-1][0])*f, pts[i-1][1]+(pts[i][1]-pts[i-1][1])*f]);
+  }
+  return out;
+}
+function disposeLine(o){ if(o){ scene.remove(o); o.geometry.dispose(); } }
+
+function drawPutt(){
+  disposeLine(puttLine); disposeLine(aimLine); disposeLine(ribbon);
+  puttLine = aimLine = ribbon = null;
+  if (!putt) return;
+
+  puttLine = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(putt.pts.map(([x,z])=>new THREE.Vector3(x,yAt(x,z,0.02),z))), puttMat);
+
+  const N = 48;
+  const aim=[]; for (let i=0;i<=N;i++){ const t=i/N; aim.push([ball.x+(putt.ax-ball.x)*t, ball.z+(putt.az-ball.z)*t]); }
+  aimLine = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(aim.map(([x,z])=>new THREE.Vector3(x,yAt(x,z,0.02),z))), aimMat);
+  aimLine.computeLineDistances();
+
+  const path = resample(putt.pts, N);
+  const v = new Float32Array(N*6*3);
+  let o=0;
+  const push = (p)=>{ v[o++]=p[0]; v[o++]=yAt(p[0],p[1],0.012); v[o++]=p[1]; };
+  for (let i=0;i<N;i++){
+    push(aim[i]); push(path[i]); push(path[i+1]);
+    push(aim[i]); push(path[i+1]); push(aim[i+1]);
+  }
+  const rg = new THREE.BufferGeometry();
+  rg.setAttribute('position', new THREE.BufferAttribute(v,3));
+  ribbon = new THREE.Mesh(rg, ribMat);
+  ribbon.frustumCulled = false;
+
+  aimMarker.position.set(putt.ax, yAt(putt.ax,putt.az,0.01), putt.az);
+  scene.add(puttLine, aimLine, ribbon);
+  syncLayers();
+}
+
+/* ---------- Replay ----------
+   Plays the recorded trajectory back on its real clock. The blue line draws in
+   behind the ball rather than being there from the start, so the shape of the
+   roll is revealed in the order the ball actually experiences it. */
+const $ = id => document.getElementById(id);
+let play = null;                          // {t} while running, null when idle
+
+function startPlay(){
+  if (!putt || !putt.trace) return;
+  play = {t:0};
+  press(bPlay,true); bPlay.textContent='Stop';
+  if (puttLine) puttLine.geometry.setDrawRange(0,1);
+}
+function stopPlay(){
+  play = null;
+  press(bPlay,false); bPlay.textContent='Roll it';
+  if (puttLine) puttLine.geometry.setDrawRange(0,Infinity);
+  placeMarkers(); updateReadout();
+}
+function stepPlay(dt){
+  const tr = putt.trace;
+  play.t += dt;
+  if (play.t >= putt.dur){ stopPlay(); return; }
+  // locate the pair of recorded samples bracketing the current clock
+  let i=1; while (i<tr.length-1 && tr[i].t < play.t) i++;
+  const a=tr[i-1], b=tr[i];
+  const f=Math.min(1,Math.max(0,(play.t-a.t)/((b.t-a.t)||1)));
+  const x=a.x+(b.x-a.x)*f, z=a.z+(b.z-a.z)*f;
+  ballG.position.set(x, yAt(x,z,0.003), z);
+  if (puttLine) puttLine.geometry.setDrawRange(0, Math.max(2,i+1));
+  const v=a.v+(b.v-a.v)*f, fB=(a.fBreak+(b.fBreak-a.fBreak)*f)*100, fD=(a.fDist+(b.fDist-a.fDist)*f)*100;
+  $('rAim').textContent = v.toFixed(2)+' m/s';
+  $('rStatus').innerHTML = 'distance <b>'+fD.toFixed(0)+'%</b> &nbsp; break taken <b>'
+    + (putt.straight ? '&ndash;' : fB.toFixed(0)+'%') + '</b>';
+}
+
+function updateReadout(){
+  const dx=hole.x-ball.x, dz=hole.z-ball.z;
+  $('rDist').textContent = Math.hypot(dx,dz).toFixed(1)+' m';
+  const e=(h(hole.x,hole.z)-h(ball.x,ball.z))*100;
+  $('rElev').textContent = (e>=0?'+':'')+e.toFixed(0)+' cm '+(Math.abs(e)<1?'level':e>0?'uphill':'downhill');
+  grad(ball.x,ball.z); $('rSlope').textContent=(Math.hypot(GX,GZ)*100).toFixed(1)+'%';
+  if (!putt){ $('rAim').textContent='–'; $('rPace').textContent='–'; $('rStatus').textContent=''; return; }
+  const L=putt.lateral*100;
+  $('rAim').textContent = (Math.abs(L)<3 ? 'center cup' : Math.abs(L).toFixed(0)+' cm '+(L>0?'right':'left'))
+    + ' @ ' + paceKey + ' pace';
+  $('rPace').textContent = putt.v0.toFixed(2)+' m/s (rolls '+putt.flatEquiv.toFixed(1)+' m flat)';
+  $('rStatus').textContent = putt.holed
+    ? 'Holes at '+(PACE[paceKey]*100).toFixed(0)+' cm past pace'
+    : 'No clean make, closest '+(putt.miss*100).toFixed(0)+' cm';
+}
+function resolveSoon(){
+  if (play) stopPlay();
+  $('rStatus').textContent='Reading…'; $('rAim').textContent='–';
+  clearTimeout(resolveSoon.t); resolveSoon.t=setTimeout(solve,30);
+}
+
+/* ---------- Camera ---------- */
+const cam = {theta:0, phi:0.001, r:30};
+function updateCamera(){
+  cam.phi=Math.max(0.001,Math.min(1.45,cam.phi)); cam.r=Math.max(3,Math.min(60,cam.r));
+  camera.position.set(cam.r*Math.sin(cam.phi)*Math.sin(cam.theta), cam.r*Math.cos(cam.phi), cam.r*Math.sin(cam.phi)*Math.cos(cam.theta));
+  camera.lookAt(0,0,0);
+}
+function setView(top){
+  Object.assign(cam, top ? {theta:0,phi:0.001,r:30} : {theta:0.6,phi:0.95,r:22});
+  press(bTop,top); press(bOrbit,!top); updateCamera();
+}
+
+/* ---------- Picking ----------
+   The mesh is flat in the buffer now, so a mesh raycast would hit a plane.
+   Instead the ray is intersected against the height function directly: march
+   until it crosses below the surface, then bisect. This is exact regardless of
+   tessellation, and it is the same routine a LiDAR mesh version would swap out. */
+const ptrs = new Map(); let pinch0=0, placeMode='ball';
+const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2();
+function pickSurface(cx,cy){
+  ndc.set(cx/innerWidth*2-1, -(cy/innerHeight)*2+1);
+  raycaster.setFromCamera(ndc,camera);
+  const o=raycaster.ray.origin, d=raycaster.ray.direction;
+  const f = t => (o.y+d.y*t) - yAt(o.x+d.x*t, o.z+d.z*t);
+  if (f(0) <= 0) return null;                     // camera below the surface
+  const STEP=0.25;
+  for (let t=STEP; t<=160; t+=STEP){
+    if (f(t) < 0){
+      let a=t-STEP, b=t;
+      for (let i=0;i<28;i++){ const m=(a+b)/2; if (f(m)>0) a=m; else b=m; }
+      const m=(a+b)/2;
+      return {x:o.x+d.x*m, z:o.z+d.z*m};
+    }
+  }
+  return null;
+}
+
+renderer.domElement.addEventListener('pointerdown', e=>{
+  renderer.domElement.setPointerCapture(e.pointerId);
+  ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY,sx:e.clientX,sy:e.clientY,t:performance.now()});
+  if (ptrs.size===2){ const [a,b]=[...ptrs.values()]; pinch0=Math.hypot(a.x-b.x,a.y-b.y); }
+});
+renderer.domElement.addEventListener('pointermove', e=>{
+  const p=ptrs.get(e.pointerId); if(!p) return;
+  const dx=e.clientX-p.x, dy=e.clientY-p.y; p.x=e.clientX; p.y=e.clientY;
+  if (ptrs.size===1 && Math.hypot(p.x-p.sx,p.y-p.sy)>6){
+    cam.theta-=dx*0.006; cam.phi-=dy*0.006;
+    if (cam.phi>0.02){ press(bTop,false); press(bOrbit,true); }
+    updateCamera();
+  } else if (ptrs.size===2){
+    const [a,b]=[...ptrs.values()], d=Math.hypot(a.x-b.x,a.y-b.y);
+    if (pinch0) cam.r*=pinch0/d; pinch0=d; updateCamera();
+  }
+});
+const endPtr = e=>{
+  const p=ptrs.get(e.pointerId); if(!p) return;
+  const tap = ptrs.size===1 && Math.hypot(p.x-p.sx,p.y-p.sy)<6 && performance.now()-p.t<350;
+  ptrs.delete(e.pointerId); if (ptrs.size<2) pinch0=0;
+  if (tap && e.type==='pointerup') placeAt(e.clientX,e.clientY);
+};
+renderer.domElement.addEventListener('pointerup', endPtr);
+renderer.domElement.addEventListener('pointercancel', endPtr);
+renderer.domElement.addEventListener('wheel', e=>{ e.preventDefault(); cam.r*=1+e.deltaY*0.001; updateCamera(); }, {passive:false});
+
+function placeAt(cx,cy){
+  const hit = pickSurface(cx,cy); if(!hit) return;
+  const x=Math.max(-9.8,Math.min(9.8,hit.x)), z=Math.max(-9.8,Math.min(9.8,hit.z));
+  const other = placeMode==='ball'?hole:ball;
+  if (Math.hypot(x-other.x,z-other.z)<0.5) return;
+  Object.assign(placeMode==='ball'?ball:hole,{x,z});
+  placeMarkers(); resolveSoon();
+}
+
+/* ---------- Controls ----------
+   One master Read toggle drives the before/after moment: bare surface, which
+   honestly looks flat, versus the read. The individual layers stay available
+   underneath for picking apart which cue is doing the work. */
+const press=(b,on)=>b.setAttribute('aria-pressed',String(on));
+const bRead=$('bRead'), bPlay=$('bPlay'), bFlow=$('bFlow'), bTint=$('bTint'), bCont=$('bCont'), bPutt=$('bPutt'),
+      bTop=$('bTop'), bOrbit=$('bOrbit'), bBall=$('bBall'), bHole=$('bHole');
+const LAYERS = {flow:true, tint:false, cont:false, putt:true};
+let readOn = true;
+
+function syncLayers(){
+  flow.visible = readOn && LAYERS.flow;
+  mat.uniforms.uTint.value = (readOn && LAYERS.tint) ? 1 : 0;
+  mat.uniforms.uCont.value = (readOn && LAYERS.cont) ? 1 : 0;
+  const p = readOn && LAYERS.putt;
+  [puttLine, aimLine, ribbon, aimMarker].forEach(o=>o&&(o.visible=p));
+  $('legend').hidden = !(readOn && LAYERS.tint);
+  $('layers').classList.toggle('dim', !readOn);
+  press(bRead, readOn);
+}
+bRead.onclick = ()=>{ readOn=!readOn; syncLayers(); };
+bPlay.onclick = ()=>{ play ? stopPlay() : startPlay(); };
+
+/* Sheet open/close. Collapsed still exposes Read and Roll it, which are the
+   two controls the before/after demo is driven from. */
+const panel=$('panel'), bSheet=$('bSheet');
+bSheet.onclick = ()=>{
+  const open = panel.dataset.open !== 'true';
+  panel.dataset.open = String(open);
+  bSheet.setAttribute('aria-expanded', String(open));
+  bSheet.innerHTML = 'Controls ' + (open ? '&#9662;' : '&#9652;');
+};
+const layerBtn = (b,key)=>b.addEventListener('click',()=>{ LAYERS[key]=!LAYERS[key]; press(b,LAYERS[key]); syncLayers(); });
+layerBtn(bFlow,'flow'); layerBtn(bTint,'tint'); layerBtn(bCont,'cont'); layerBtn(bPutt,'putt');
+
+bTop.onclick=()=>setView(true); bOrbit.onclick=()=>setView(false);
+bBall.onclick=()=>{ placeMode='ball'; press(bBall,true); press(bHole,false); };
+bHole.onclick=()=>{ placeMode='hole'; press(bHole,true); press(bBall,false); };
+
+const paceBtns = {die:$('pDie'), std:$('pStd'), firm:$('pFirm')};
+Object.entries(paceBtns).forEach(([k,b])=>b.addEventListener('click',()=>{
+  paceKey=k; Object.entries(paceBtns).forEach(([k2,b2])=>press(b2,k2===k)); resolveSoon();
+}));
+
+$('sExag').addEventListener('input',e=>{
+  if (play) stopPlay();
+  exag=+e.target.value;
+  mat.uniforms.uExag.value = exag;
+  const l=$('lExag');
+  l.textContent = exag===1 ? '1\u00d7 true' : exag+'\u00d7 exaggerated';
+  const chip=$('chipExag'); chip.hidden = exag===1; chip.textContent = exag+'\u00d7';
+  placeMarkers(); drawPutt();          // markers and lines still drape on the shown surface
+});
+$('sStimp').addEventListener('input',e=>{ stimp=+e.target.value; $('lStimp').textContent=stimp; resolveSoon(); });
+
+addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
+
+/* Title card: fill from the attribution constants, then dismiss on the button or
+   Escape. The canvas sits behind it, so nothing is interactive until it closes. */
+(function(){
+  const gate=document.getElementById('gate'), go=document.getElementById('gateGo');
+  document.getElementById('gateBy').textContent = 'Built by ' + AUTHOR + ' \u00b7 September 2026';
+  document.getElementById('gateTerms').textContent =
+    '\u00a9 2026 ' + AUTHOR + '. All rights reserved. Shared solely for evaluation of the '
+    + 'author\u2019s work. No licence is granted to copy, modify, distribute, or incorporate '
+    + 'this work or any derivative of it into any product or codebase. ' + AUTHOR_CONTACT;
+  const close=()=>{ gate.hidden=true; };
+  go.addEventListener('click', close);
+  addEventListener('keydown', e=>{ if(e.key==='Escape' && !gate.hidden) close(); });
+  go.focus();
+})();
+
+document.getElementById('credit').textContent =
+  '\u00a9 2026 ' + AUTHOR + ' \u00b7 evaluation copy \u00b7 ' + AUTHOR_CONTACT;
+
+/* ---------- Go ---------- */
+setView(true); placeMarkers(); updateFlow(0); syncLayers(); resolveSoon();
+let last=performance.now();
+renderer.setAnimationLoop(now=>{
+  const dt=Math.min(0.05,(now-last)/1000); last=now;
+  if (flow.visible) updateFlow(reduceMotion?0:dt);
+  if (play) stepPlay(dt);
+  renderer.render(scene,camera);
+});
+</script>
+</body>
+</html>
